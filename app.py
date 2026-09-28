@@ -1,50 +1,27 @@
 import streamlit as st
-from datetime import datetime
-
+from database import projects,requests,safety,update_project
 st.set_page_config(page_title="SITIO PV Operations",page_icon="⚙️",layout="wide")
-st.markdown("""<style>.block-container{max-width:1250px;padding-top:2rem}.red{padding:14px;border-radius:12px;background:#fff1f0;border:1px solid #ffc9c5}.amber{padding:14px;border-radius:12px;background:#fff8e6;border:1px solid #ffe0a3}.green{padding:14px;border-radius:12px;background:#edf9f1;border:1px solid #b9e3c6}</style>""",unsafe_allow_html=True)
-st.title("SITIO PV Operations")
-st.caption("Centro interno de operaciones · NO accesible a clientes")
-page=st.sidebar.radio("Operations",["Command Center","Project Factory","Solicitudes","Clientes","Casos de seguridad","Entregables"])
-st.sidebar.warning("INTERNO SITIO")
-
-clients=[{"Cliente":"Demo Pharma Paraguay S.A.","Estado":"🔴 SITIO","Activos":2,"Acción":"Revisar PGR"},{"Cliente":"Laboratorio Guaraní Demo","Estado":"🟠 CLIENTE","Activos":1,"Acción":"Esperando documento"},{"Cliente":"Importadora Salud Demo","Estado":"🟢 OK","Activos":1,"Acción":"Ninguna"}]
-if "progress" not in st.session_state: st.session_state.progress=82
-if "internal_notes" not in st.session_state: st.session_state.internal_notes=""
-
+st.title("SITIO PV Operations"); st.caption("Centro interno · acceso exclusivo SITIO")
+page=st.sidebar.radio("Operations",["Command Center","Project Factory","Solicitudes","Casos de seguridad"])
+st.sidebar.error("INTERNO SITIO")
+try: ps=projects()
+except Exception:
+ st.error("Backend no configurado. Añada SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en los Secrets de este deployment."); st.stop()
 if page=="Command Center":
-    a,b,c,d=st.columns(4); a.metric("Clientes",30); b.metric("🔴 Requieren SITIO",2); c.metric("🟠 Esperando",3); d.metric("🟢 Sin acción",25)
-    st.subheader("🔴 Necesita intervención SITIO")
-    st.markdown('<div class="red"><b>Demo Pharma · PV-2026-021 · PGR GLUCOX</b><br>Revisar documentación recibida y definir siguiente acción.</div>',unsafe_allow_html=True)
-    st.subheader("🟠 Esperando terceros")
-    st.markdown('<div class="amber"><b>Laboratorio Guaraní · BPFV</b><br>Esperando documento del cliente.</div>',unsafe_allow_html=True)
-    with st.expander("🟢 25 clientes sin acción"): st.write("No requieren tiempo SITIO ahora.")
+ req=requests(); ev=safety(); a,b,c=st.columns(3); a.metric("Proyectos",len(ps)); b.metric("Solicitudes nuevas",sum(x.get("status")=="Nueva" for x in req)); c.metric("Safety intake",len(ev))
+ st.subheader("Necesita intervención"); st.dataframe([{"Proyecto":x["code"],"Cliente":x["client_slug"],"Interno":x.get("internal_status"),"Prioridad":x.get("internal_priority"),"Cliente ve":x.get("client_status")} for x in ps],use_container_width=True,hide_index=True)
 elif page=="Project Factory":
-    st.header("Project Factory")
-    st.selectbox("Proyecto",["PV-2026-018 · Demo Pharma · BPFV Fast Track","PV-2026-021 · Demo Pharma · PGR GLUCOX"])
-    st.subheader("Información visible para el cliente")
-    st.session_state.progress=st.slider("Progreso visible",0,100,st.session_state.progress)
-    st.selectbox("Estado visible",["SITIO trabajando","Acción requerida","Esperando DINAVISA","Completado"])
-    st.text_input("Siguiente paso visible","Preparación de presentación ante DINAVISA")
-    st.text_input("Necesitamos del cliente","")
-    st.divider()
-    st.subheader("Información interna SITIO")
-    st.selectbox("Responsable interno",["Sin asignar","Lucila","David","Equipo PV"])
-    st.selectbox("Prioridad",["Normal","Alta","Urgente"])
-    st.session_state.internal_notes=st.text_area("Notas internas — jamás visibles al cliente",st.session_state.internal_notes)
-    st.number_input("Minutos SITIO invertidos",0,10000,95)
-    st.checkbox("QC interno completado")
-    if st.button("Guardar actualización",type="primary"): st.success("Actualización guardada (demo).")
+ labels={f'{x["code"]} · {x["client_slug"]} · {x["title"]}':x for x in ps}
+ if not labels: st.info("Sin proyectos."); st.stop()
+ label=st.selectbox("Proyecto",list(labels)); p=labels[label]
+ st.subheader("VISIBLE PARA CLIENTE")
+ progress=st.slider("Progreso",0,100,p.get("client_progress") or 0); status=st.selectbox("Estado",["SITIO trabajando","Acción requerida","Esperando DINAVISA","Completado"],index=0)
+ nxt=st.text_input("Siguiente paso",p.get("client_next_step") or ""); need=st.text_input("Necesitamos del cliente",p.get("client_need") or "")
+ st.divider(); st.subheader("INTERNO SITIO — nunca expuesto al portal")
+ owner=st.text_input("Responsable interno",p.get("internal_owner") or ""); priority=st.selectbox("Prioridad",["Normal","Alta","Urgente"]); notes=st.text_area("Notas internas",p.get("internal_notes") or ""); mins=st.number_input("Minutos SITIO",0,100000,p.get("internal_minutes") or 0)
+ if st.button("Guardar",type="primary"):
+  update_project(p["id"],{"client_progress":progress,"client_status":status,"client_next_step":nxt,"client_need":need or None,"internal_owner":owner,"internal_priority":priority,"internal_notes":notes,"internal_minutes":mins}); st.success("Guardado. El portal cliente verá solo los campos externos."); st.rerun()
 elif page=="Solicitudes":
-    st.header("Solicitudes entrantes")
-    st.dataframe([{"ID":"REQ-0042","Cliente":"Demo Pharma","Solicitud":"BPFV Fast Track","Estado":"Nueva","Recibida":"Hoy 09:42"},{"ID":"REQ-0041","Cliente":"Demo Pharma","Solicitud":"Consulta producto","Estado":"En revisión","Recibida":"Ayer"}],use_container_width=True,hide_index=True)
-elif page=="Clientes":
-    st.header("Clientes")
-    st.dataframe(clients,use_container_width=True,hide_index=True)
-elif page=="Casos de seguridad":
-    st.header("Casos de seguridad")
-    st.warning("DEMO: no introducir datos reales de pacientes hasta desplegar autenticación, almacenamiento y controles de acceso de producción.")
-    st.dataframe([{"Caso":"CASE-DEMO-001","Cliente":"Demo Pharma","Producto":"MED-X 100 mg","Estado":"Triage","Deadline":"Demo"}],use_container_width=True,hide_index=True)
+ st.dataframe(requests(),use_container_width=True,hide_index=True)
 else:
-    st.header("Entregables")
-    st.dataframe([{"Proyecto":"PV-2026-018","Entregable":"Expediente BPFV","Visibilidad":"CLIENTE","Estado":"Preparación"},{"Proyecto":"PV-2026-018","Entregable":"Checklist interno","Visibilidad":"INTERNO","Estado":"Activo"},{"Proyecto":"PV-2026-021","Entregable":"PGR final","Visibilidad":"CLIENTE","Estado":"Borrador"}],use_container_width=True,hide_index=True)
+ st.warning("No introducir datos reales de pacientes en la demo."); st.dataframe(safety(),use_container_width=True,hide_index=True)
